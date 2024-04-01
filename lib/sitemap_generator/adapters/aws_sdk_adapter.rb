@@ -27,10 +27,11 @@ module SitemapGenerator
     #   All other options you provide are passed directly to the AWS client.
     #   See https://docs.aws.amazon.com/sdk-for-ruby/v2/api/Aws/S3/Client.html#initialize-instance_method
     #   for a full list of supported options.
-    def initialize(bucket, aws_access_key_id: nil, aws_secret_access_key: nil, aws_region: nil, aws_endpoint: nil, acl: 'public-read', cache_control: 'private, max-age=0, no-cache', **options)
+    def initialize(bucket, aws_access_key_id: nil, aws_secret_access_key: nil, aws_region: nil, aws_endpoint: nil, acl: 'public-read', cache_control: 'private, max-age=0, no-cache', namespace_path: nil, **options)
       @bucket = bucket
       @acl = acl
       @cache_control = cache_control
+      @namespace_path = namespace_path
       @options = options
       set_option_unless_set(:access_key_id, aws_access_key_id)
       set_option_unless_set(:secret_access_key, aws_secret_access_key)
@@ -38,15 +39,15 @@ module SitemapGenerator
       set_option_unless_set(:endpoint, aws_endpoint)
     end
 
-
     # Call with a SitemapLocation and string data
     def write(location, raw_data)
       SitemapGenerator::FileAdapter.new.write(location, raw_data)
-      s3_object = s3_resource.bucket(@bucket).object(location.path_in_public)
+      upload_path = File.join([@namespace_path, location.path_in_public].reject(&:blank?))
+      s3_object = s3_resource.bucket(@bucket).object(upload_path)
       s3_object.upload_file(location.path, {
         acl: @acl,
         cache_control: @cache_control,
-        content_type: location[:compress] ? 'application/x-gzip' : 'application/xml'
+        content_type: location[:compress] ? 'application/gzip' : 'application/xml'
       }.compact)
     end
 
@@ -58,6 +59,23 @@ module SitemapGenerator
 
     def s3_resource
       @s3_resource ||= Aws::S3::Resource.new(@options)
+    end
+
+
+    # An object is blank if it's false, empty, or a whitespace string.
+    # For example, +false+, '', '   ', +nil+, [], and {} are all blank.
+    #
+    # This simplifies
+    #
+    #   !address || address.empty?
+    #
+    # to
+    #
+    #   address.blank?
+    #
+    # @return [true, false]
+    def blank?
+      respond_to?(:empty?) ? !!empty? : !self
     end
   end
 end
